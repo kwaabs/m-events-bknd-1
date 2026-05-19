@@ -1,0 +1,100 @@
+# Port assignments — all above 9400, nothing on default ports
+# ┌─────────────────────────┬──────────┬──────────────────────────────────────┐
+# │ Service                 │ Host     │ Purpose                              │
+# ├─────────────────────────┼──────────┼──────────────────────────────────────┤
+# │ db    (Postgres)        │ 9432     │ Supabase Postgres + TimescaleDB      │
+# │ martin (tile server)    │ 9401     │ MVT tiles — internal, proxied by API │
+# │ api   (Go backend)      │ 9400     │ Public-facing REST API               │
+# │ valkey (cache)          │ 9479     │ Token blacklist, dashboard cache     │
+# └─────────────────────────┴──────────┴──────────────────────────────────────┘
+
+services:
+
+  # ── Supabase Postgres (TimescaleDB + PostGIS included) ────────────────────
+  db:
+    image: supabase/postgres:15.14.1.095
+    container_name: ecg_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ecg
+      PGPORT: 9432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d  # runs on first boot only
+    ports:
+      - "9432:9432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d ecg -p 9432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Valkey (Redis-compatible cache + token blacklist) ─────────────────────
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: ecg_valkey
+    restart: unless-stopped
+    command: >
+      valkey-server
+      --port 9479
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - valkeydata:/data
+    ports:
+      - "9479:9479"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "9479", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Martin tile server ────────────────────────────────────────────────────
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: ecg_martin
+    restart: on-failure   # restarts until PostGIS is available
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://martin_reader:martin_tiles_readonly@db:9432/ecg?sslmode=disable
+    volumes:
+      - ./martin.yaml:/config/martin.yaml:ro
+    command: [ "--config", "/config/martin.yaml", "--webui", "enable-for-all" ]
+    ports:
+      - "9401:9401"   # internal — Go API proxies all tile requests
+
+  # ── ECG Backend API ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ecg_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      martin:
+        condition: service_started
+    env_file: ../.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 9432
+      DB_USER: supabase_admin
+      DB_NAME: ecg
+      MARTIN_URL: http://martin:9401
+      VALKEY_URL: redis://valkey:9479
+      PORT: 9400
+    ports:
+      - "9400:9400"
+
+volumes:
+  pgdata:
+  valkeydata:

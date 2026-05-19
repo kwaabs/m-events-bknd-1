@@ -1,0 +1,30 @@
+# Don't send these to the Docker build context
+
+# Version control
+.git
+.gitignore
+
+# Local env — never bake credentials into the image
+.env
+*.env
+
+# Dev tooling
+.vscode
+.idea
+*.log
+
+# Test artifacts
+*_test.go
+testdata/
+
+# Local build output
+bin/
+dist/
+
+# Frontend (separate build)
+../ecg-frontend/
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+deploy/docker-compose.yml

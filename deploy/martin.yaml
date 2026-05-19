@@ -1,0 +1,38 @@
+# Martin v1.3.1 configuration
+listen_addresses: "0.0.0.0:9401"
+
+postgres:
+  connection_string: ${DATABASE_URL}
+  pool_size: 10
+  # Auto-publish all tables with geometry
+  auto_publish:
+    from_schemas: public
+  # Explicitly define the view source since Martin skips views in auto-publish
+  tables:
+    customer_map_view:
+      schema: public
+      table: customer_map_view
+      srid: 4326
+      geometry_column: geom
+      geometry_type: Point
+      minzoom: 5
+      maxzoom: 20
+      properties:
+        ecgkey: text
+        meternumber: text
+        accountnumber: text
+        fullname: text
+        servicetype: text
+        serviceclass: text
+        contractstatus: text
+        regioncode: text
+        regionname: text
+        districtcode: text
+        districtname: text
+        metermake: text
+        metermodel: text
+        has_any_coordinates: bool
+        latest_event_time: timestamptz
+        latest_event_code: text
+        latest_event_desc: text
+        event_count: int8
